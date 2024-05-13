@@ -32,38 +32,58 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deactivate = exports.activate = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const parsing = __importStar(__webpack_require__(2));
+// Parent file of twincat-reviewr treeview
 class MainFileItem extends vscode.TreeItem {
     label;
     filepath;
-    constructor(label, filepath) {
+    declaration;
+    implementation;
+    constructor(label, filepath, declaration, implementation) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
         this.label = label;
         this.filepath = filepath;
+        this.declaration = declaration;
+        this.implementation = implementation;
     }
 }
+// Subfile of twincat-reviewr treeview (method, property...)
 class SubFileItem extends vscode.TreeItem {
     label;
-    filePath;
+    declaration;
+    implementation;
     iconPath;
-    constructor(label, filePath, iconPath) {
+    constructor(label, declaration, implementation, iconPath) {
         super(label, vscode.TreeItemCollapsibleState.None);
         this.label = label;
-        this.filePath = filePath;
+        this.declaration = declaration;
+        this.implementation = implementation;
         this.iconPath = iconPath;
     }
 }
-class CustomTreeViewProvider {
+// Data provider for twincat-reviewer treeview
+class ReviewerTreeviewDataProvider {
+    mainLabel;
+    filePath;
+    declaration;
+    implementation;
     // Array to hold the sub items
     subItems = [];
     // Main item representing the root of the tree view
     mainItem;
-    constructor(filePath, mainLabel, methods, properties) {
+    constructor(mainLabel, filePath, declaration, implementation) {
+        this.mainLabel = mainLabel;
+        this.filePath = filePath;
+        this.declaration = declaration;
+        this.implementation = implementation;
         // Create the main item with the provided label
-        this.mainItem = new MainFileItem(mainLabel, filePath);
+        this.mainItem = new MainFileItem(mainLabel, filePath, declaration, implementation);
         // Create subitems with the provided labels
         // TODO: import and use better icons
-        this.subItems.push(...methods.map(label => new SubFileItem(label, filePath, vscode.ThemeIcon.File)));
-        this.subItems.push(...properties.map(label => new SubFileItem(label, filePath, vscode.ThemeIcon.File)));
+        // this.subItems.push(...methods.map(label => new SubFileItem(label, filePath, vscode.ThemeIcon.File)));
+        // this.subItems.push(...properties.map(label => new SubFileItem(label, filePath, vscode.ThemeIcon.File)));
+    }
+    addMethod(label, declaration, implementation, iconPath) {
+        this.subItems.push(new SubFileItem(label, declaration, implementation, iconPath));
     }
     getTreeItem(element) {
         return element;
@@ -74,6 +94,16 @@ class CustomTreeViewProvider {
         }
         return this.subItems;
     }
+}
+// Event handler for item selection in the twincat-reviewer tree view
+function handleTreeViewItemSelected(selectedItem) {
+    // Retrieve the file path or identifier associated with the selected subfile
+    const filePath = selectedItem.filePath; // Assuming `filePath` is the property containing the file path
+    // Parse the file to extract the relevant content
+    console.log(selectedItem.declaration);
+    console.log(selectedItem.implementation);
+    // Create or show the custom readonly editor
+    // showCustomReadonlyEditor(parsedContent);
 }
 function activate(context) {
     let disposable = vscode.commands.registerCommand('twincat-reviewer.startReview', (resource) => {
@@ -90,11 +120,22 @@ function activate(context) {
                 const properties = data.Property.map((obj) => obj.$.Name);
                 vscode.window.showInformationMessage(`File contains methods ${methods}`);
                 vscode.window.showInformationMessage(`File contains methods ${properties}`);
-                const treeViewProvider = new CustomTreeViewProvider(filename, data.$.Name, methods, properties);
+                console.log(data.Implementation);
+                const treeViewProvider = new ReviewerTreeviewDataProvider(data.$.Name, filename, data.Declaration[0], data.Implementation[0].ST[0]);
+                data.Method.forEach((method) => {
+                    treeViewProvider.addMethod(method.$.Name, method.Declaration[0], method.Implementation[0].ST[0], vscode.ThemeIcon.File);
+                });
+                // data.Property.forEach(property: any => {
+                //     treeViewProvider.addMethod(property.$.Name, property.Declaration, property.Implementation, vscode.ThemeIcon.File);
+                // });
                 const treeView = vscode.window.createTreeView('twincat-reviewer.customTreeView', { treeDataProvider: treeViewProvider });
-                // const item1 = new SubFileItem('Item 1', '/path/to/file1.txt', filename, vscode.ThemeIcon.File);
-                // const item2 = new SubFileItem('Item 2', '/path/to/file2.txt', filename, vscode.ThemeIcon.File);
-                // treeViewProvider.setItems([item1, item2]);
+                // Register event handler for item selection in the custom tree view
+                treeView.onDidChangeSelection((event) => {
+                    const selectedItem = event.selection[0];
+                    if (selectedItem) {
+                        handleTreeViewItemSelected(selectedItem);
+                    }
+                });
             })
                 .catch((error) => {
                 console.log(error);
