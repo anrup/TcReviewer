@@ -31,7 +31,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deactivate = exports.activate = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const parsing = __importStar(__webpack_require__(2));
+const fs = __importStar(__webpack_require__(2));
+const path = __importStar(__webpack_require__(3));
+const parsing = __importStar(__webpack_require__(4));
 // Parent file of twincat-reviewr treeview
 class MainFileItem extends vscode.TreeItem {
     label;
@@ -96,14 +98,61 @@ class ReviewerTreeviewDataProvider {
     }
 }
 // Event handler for item selection in the twincat-reviewer tree view
-function handleTreeViewItemSelected(selectedItem) {
-    // Retrieve the file path or identifier associated with the selected subfile
-    const filePath = selectedItem.filePath; // Assuming `filePath` is the property containing the file path
+function handleTreeViewItemSelected(context, selectedItem) {
     // Parse the file to extract the relevant content
-    console.log(selectedItem.declaration);
-    console.log(selectedItem.implementation);
-    // Create or show the custom readonly editor
-    // showCustomReadonlyEditor(parsedContent);
+    const declLines = selectedItem.declaration.split(/\r?\n/);
+    const implLines = selectedItem.implementation.split(/\r?\n/);
+    createTcView(context, selectedItem.label, declLines, implLines);
+}
+function createTcView(context, label, declaration, implementation) {
+    // Read the HTML file
+    const htmlPath = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.html'));
+    let htmlContent = fs.readFileSync(htmlPath.fsPath, 'utf-8');
+    // Read the CSS file
+    const cssPath = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.css'));
+    const cssContent = fs.readFileSync(cssPath.fsPath, 'utf-8');
+    // Create a webview panel for the custom editor
+    const panel = vscode.window.createWebviewPanel('customEditor', label, vscode.ViewColumn.One, {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'views'))]
+    });
+    // Read the script file
+    const scriptPathOnDisk = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.js'));
+    const scriptUri = panel.webview.asWebviewUri(scriptPathOnDisk);
+    // Set the HTML content for the webview
+    const replacedHtmlContent = htmlContent
+        .replace('<link rel="stylesheet" href="styles.css">', `<style>${cssContent}</style>`)
+        .replace('<!-- declaration -->', declaration.map((line, index) => `<div class="line" data-line-number="${index}"><pre>${line}</pre></div>`).join(''))
+        .replace('<!-- implementation -->', implementation.map((line, index) => `<div class="line" data-line-number="${index}"><pre>${line}</pre></div>`).join(''))
+        .replace('<script src="script.js"></script>', `<script src="${scriptUri}"></script>`);
+    panel.webview.html = replacedHtmlContent;
+    panel.webview.onDidReceiveMessage(message => {
+        switch (message.command) {
+            case 'logLineNumber':
+                console.log(`Line clicked in ${message.section}:`, message.lineNumber);
+                // Send a highlight command back to the webview
+                let highlightedLines = context.workspaceState.get(`${label}highlightedLines${message.section}`, []);
+                const index = highlightedLines.indexOf(parseInt(message.lineNumber));
+                console.log(`index`, index, 'of', parseInt(message.lineNumber));
+                if (index !== -1) {
+                    // Value exists, remove it
+                    highlightedLines.splice(index, 1);
+                }
+                else {
+                    // Value doesn't exist, add it
+                    highlightedLines.push(parseInt(message.lineNumber));
+                }
+                context.workspaceState.update(`${label}highlightedLines${message.section}`, highlightedLines);
+                console.log(`highlighted lines:`, highlightedLines);
+                panel.webview.postMessage({ command: 'highlightLine', lineNumbers: highlightedLines, section: message.section });
+                return;
+            // TODO: remove when not needed
+            case 'logFromScript':
+                console.log('Message from script.js:', message.message);
+                // You can perform other actions here based on the message
+                return;
+        }
+    }, undefined, context.subscriptions);
 }
 function activate(context) {
     let disposable = vscode.commands.registerCommand('twincat-reviewer.startReview', (resource) => {
@@ -120,7 +169,6 @@ function activate(context) {
                 const properties = data.Property.map((obj) => obj.$.Name);
                 vscode.window.showInformationMessage(`File contains methods ${methods}`);
                 vscode.window.showInformationMessage(`File contains methods ${properties}`);
-                console.log(data.Implementation);
                 const treeViewProvider = new ReviewerTreeviewDataProvider(data.$.Name, filename, data.Declaration[0], data.Implementation[0].ST[0]);
                 data.Method.forEach((method) => {
                     treeViewProvider.addMethod(method.$.Name, method.Declaration[0], method.Implementation[0].ST[0], vscode.ThemeIcon.File);
@@ -133,7 +181,7 @@ function activate(context) {
                 treeView.onDidChangeSelection((event) => {
                     const selectedItem = event.selection[0];
                     if (selectedItem) {
-                        handleTreeViewItemSelected(selectedItem);
+                        handleTreeViewItemSelected(context, selectedItem);
                     }
                 });
             })
@@ -162,6 +210,20 @@ module.exports = require("vscode");
 
 /***/ }),
 /* 2 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("fs");
+
+/***/ }),
+/* 3 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("path");
+
+/***/ }),
+/* 4 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -191,8 +253,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.parseFile = void 0;
-const xml2js = __importStar(__webpack_require__(3));
-const fs = __importStar(__webpack_require__(47));
+const xml2js = __importStar(__webpack_require__(5));
+const fs = __importStar(__webpack_require__(2));
 // Read the XML file
 function parseFile(fileName) {
     return new Promise((resolve, reject) => {
@@ -231,7 +293,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 3 */
+/* 5 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -241,13 +303,13 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  defaults = __webpack_require__(4);
+  defaults = __webpack_require__(6);
 
-  builder = __webpack_require__(5);
+  builder = __webpack_require__(7);
 
-  parser = __webpack_require__(39);
+  parser = __webpack_require__(41);
 
-  processors = __webpack_require__(45);
+  processors = __webpack_require__(47);
 
   exports.defaults = defaults.defaults;
 
@@ -276,7 +338,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 4 */
+/* 6 */
 /***/ (function(__unused_webpack_module, exports) {
 
 // Generated by CoffeeScript 1.12.7
@@ -354,7 +416,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 5 */
+/* 7 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -363,9 +425,9 @@ exports.parseFile = parseFile;
   var builder, defaults, escapeCDATA, requiresCDATA, wrapCDATA,
     hasProp = {}.hasOwnProperty;
 
-  builder = __webpack_require__(6);
+  builder = __webpack_require__(8);
 
-  defaults = (__webpack_require__(4).defaults);
+  defaults = (__webpack_require__(6).defaults);
 
   requiresCDATA = function(entry) {
     return typeof entry === "string" && (entry.indexOf('&') >= 0 || entry.indexOf('>') >= 0 || entry.indexOf('<') >= 0);
@@ -487,28 +549,28 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 6 */
+/* 8 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
   var NodeType, WriterState, XMLDOMImplementation, XMLDocument, XMLDocumentCB, XMLStreamWriter, XMLStringWriter, assign, isFunction, ref;
 
-  ref = __webpack_require__(7), assign = ref.assign, isFunction = ref.isFunction;
+  ref = __webpack_require__(9), assign = ref.assign, isFunction = ref.isFunction;
 
-  XMLDOMImplementation = __webpack_require__(8);
+  XMLDOMImplementation = __webpack_require__(10);
 
-  XMLDocument = __webpack_require__(9);
+  XMLDocument = __webpack_require__(11);
 
-  XMLDocumentCB = __webpack_require__(37);
+  XMLDocumentCB = __webpack_require__(39);
 
-  XMLStringWriter = __webpack_require__(34);
+  XMLStringWriter = __webpack_require__(36);
 
-  XMLStreamWriter = __webpack_require__(38);
+  XMLStreamWriter = __webpack_require__(40);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  WriterState = __webpack_require__(36);
+  WriterState = __webpack_require__(38);
 
   module.exports.create = function(name, xmldec, doctype, options) {
     var doc, root;
@@ -558,7 +620,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 7 */
+/* 9 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -647,7 +709,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 8 */
+/* 10 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -685,7 +747,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 9 */
+/* 11 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -694,19 +756,19 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isPlainObject = (__webpack_require__(7).isPlainObject);
+  isPlainObject = (__webpack_require__(9).isPlainObject);
 
-  XMLDOMImplementation = __webpack_require__(8);
+  XMLDOMImplementation = __webpack_require__(10);
 
-  XMLDOMConfiguration = __webpack_require__(10);
+  XMLDOMConfiguration = __webpack_require__(12);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLStringifier = __webpack_require__(33);
+  XMLStringifier = __webpack_require__(35);
 
-  XMLStringWriter = __webpack_require__(34);
+  XMLStringWriter = __webpack_require__(36);
 
   module.exports = XMLDocument = (function(superClass) {
     extend(XMLDocument, superClass);
@@ -933,16 +995,16 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 10 */
+/* 12 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
   var XMLDOMConfiguration, XMLDOMErrorHandler, XMLDOMStringList;
 
-  XMLDOMErrorHandler = __webpack_require__(11);
+  XMLDOMErrorHandler = __webpack_require__(13);
 
-  XMLDOMStringList = __webpack_require__(12);
+  XMLDOMStringList = __webpack_require__(14);
 
   module.exports = XMLDOMConfiguration = (function() {
     function XMLDOMConfiguration() {
@@ -1003,7 +1065,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 11 */
+/* 13 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -1025,7 +1087,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 12 */
+/* 14 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -1059,7 +1121,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 13 */
+/* 15 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -1067,7 +1129,7 @@ exports.parseFile = parseFile;
   var DocumentPosition, NodeType, XMLCData, XMLComment, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLNamedNodeMap, XMLNode, XMLNodeList, XMLProcessingInstruction, XMLRaw, XMLText, getValue, isEmpty, isFunction, isObject, ref1,
     hasProp = {}.hasOwnProperty;
 
-  ref1 = __webpack_require__(7), isObject = ref1.isObject, isFunction = ref1.isFunction, isEmpty = ref1.isEmpty, getValue = ref1.getValue;
+  ref1 = __webpack_require__(9), isObject = ref1.isObject, isFunction = ref1.isFunction, isEmpty = ref1.isEmpty, getValue = ref1.getValue;
 
   XMLElement = null;
 
@@ -1106,19 +1168,19 @@ exports.parseFile = parseFile;
       this.children = [];
       this.baseURI = null;
       if (!XMLElement) {
-        XMLElement = __webpack_require__(14);
-        XMLCData = __webpack_require__(18);
-        XMLComment = __webpack_require__(20);
-        XMLDeclaration = __webpack_require__(21);
-        XMLDocType = __webpack_require__(22);
-        XMLRaw = __webpack_require__(27);
-        XMLText = __webpack_require__(28);
-        XMLProcessingInstruction = __webpack_require__(29);
-        XMLDummy = __webpack_require__(30);
-        NodeType = __webpack_require__(15);
-        XMLNodeList = __webpack_require__(31);
-        XMLNamedNodeMap = __webpack_require__(17);
-        DocumentPosition = __webpack_require__(32);
+        XMLElement = __webpack_require__(16);
+        XMLCData = __webpack_require__(20);
+        XMLComment = __webpack_require__(22);
+        XMLDeclaration = __webpack_require__(23);
+        XMLDocType = __webpack_require__(24);
+        XMLRaw = __webpack_require__(29);
+        XMLText = __webpack_require__(30);
+        XMLProcessingInstruction = __webpack_require__(31);
+        XMLDummy = __webpack_require__(32);
+        NodeType = __webpack_require__(17);
+        XMLNodeList = __webpack_require__(33);
+        XMLNamedNodeMap = __webpack_require__(19);
+        DocumentPosition = __webpack_require__(34);
       }
     }
 
@@ -1850,7 +1912,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 14 */
+/* 16 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -1859,15 +1921,15 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  ref = __webpack_require__(7), isObject = ref.isObject, isFunction = ref.isFunction, getValue = ref.getValue;
+  ref = __webpack_require__(9), isObject = ref.isObject, isFunction = ref.isFunction, getValue = ref.getValue;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLAttribute = __webpack_require__(16);
+  XMLAttribute = __webpack_require__(18);
 
-  XMLNamedNodeMap = __webpack_require__(17);
+  XMLNamedNodeMap = __webpack_require__(19);
 
   module.exports = XMLElement = (function(superClass) {
     extend(XMLElement, superClass);
@@ -2154,7 +2216,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 15 */
+/* 17 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2183,16 +2245,16 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 16 */
+/* 18 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
   var NodeType, XMLAttribute, XMLNode;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
   module.exports = XMLAttribute = (function() {
     function XMLAttribute(parent, name, value) {
@@ -2297,7 +2359,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 17 */
+/* 19 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2361,7 +2423,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 18 */
+/* 20 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2370,9 +2432,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLCharacterData = __webpack_require__(19);
+  XMLCharacterData = __webpack_require__(21);
 
   module.exports = XMLCData = (function(superClass) {
     extend(XMLCData, superClass);
@@ -2403,7 +2465,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 19 */
+/* 21 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2412,7 +2474,7 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
   module.exports = XMLCharacterData = (function(superClass) {
     extend(XMLCharacterData, superClass);
@@ -2488,7 +2550,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 20 */
+/* 22 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2497,9 +2559,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLCharacterData = __webpack_require__(19);
+  XMLCharacterData = __webpack_require__(21);
 
   module.exports = XMLComment = (function(superClass) {
     extend(XMLComment, superClass);
@@ -2530,7 +2592,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 21 */
+/* 23 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2539,11 +2601,11 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isObject = (__webpack_require__(7).isObject);
+  isObject = (__webpack_require__(9).isObject);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDeclaration = (function(superClass) {
     extend(XMLDeclaration, superClass);
@@ -2579,7 +2641,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 22 */
+/* 24 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2588,21 +2650,21 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isObject = (__webpack_require__(7).isObject);
+  isObject = (__webpack_require__(9).isObject);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLDTDAttList = __webpack_require__(23);
+  XMLDTDAttList = __webpack_require__(25);
 
-  XMLDTDEntity = __webpack_require__(24);
+  XMLDTDEntity = __webpack_require__(26);
 
-  XMLDTDElement = __webpack_require__(25);
+  XMLDTDElement = __webpack_require__(27);
 
-  XMLDTDNotation = __webpack_require__(26);
+  XMLDTDNotation = __webpack_require__(28);
 
-  XMLNamedNodeMap = __webpack_require__(17);
+  XMLNamedNodeMap = __webpack_require__(19);
 
   module.exports = XMLDocType = (function(superClass) {
     extend(XMLDocType, superClass);
@@ -2771,7 +2833,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 23 */
+/* 25 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2780,9 +2842,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDTDAttList = (function(superClass) {
     extend(XMLDTDAttList, superClass);
@@ -2832,7 +2894,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 24 */
+/* 26 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2841,11 +2903,11 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isObject = (__webpack_require__(7).isObject);
+  isObject = (__webpack_require__(9).isObject);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDTDEntity = (function(superClass) {
     extend(XMLDTDEntity, superClass);
@@ -2935,7 +2997,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 25 */
+/* 27 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2944,9 +3006,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDTDElement = (function(superClass) {
     extend(XMLDTDElement, superClass);
@@ -2979,7 +3041,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 26 */
+/* 28 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2988,9 +3050,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDTDNotation = (function(superClass) {
     extend(XMLDTDNotation, superClass);
@@ -3037,7 +3099,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 27 */
+/* 29 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3046,9 +3108,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
   module.exports = XMLRaw = (function(superClass) {
     extend(XMLRaw, superClass);
@@ -3078,7 +3140,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 28 */
+/* 30 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3087,9 +3149,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLCharacterData = __webpack_require__(19);
+  XMLCharacterData = __webpack_require__(21);
 
   module.exports = XMLText = (function(superClass) {
     extend(XMLText, superClass);
@@ -3153,7 +3215,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 29 */
+/* 31 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3162,9 +3224,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLCharacterData = __webpack_require__(19);
+  XMLCharacterData = __webpack_require__(21);
 
   module.exports = XMLProcessingInstruction = (function(superClass) {
     extend(XMLProcessingInstruction, superClass);
@@ -3208,7 +3270,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 30 */
+/* 32 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3217,9 +3279,9 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(13);
+  XMLNode = __webpack_require__(15);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
   module.exports = XMLDummy = (function(superClass) {
     extend(XMLDummy, superClass);
@@ -3245,7 +3307,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 31 */
+/* 33 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3279,7 +3341,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 32 */
+/* 34 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3297,7 +3359,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 33 */
+/* 35 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3543,7 +3605,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 34 */
+/* 36 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3552,7 +3614,7 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLWriterBase = __webpack_require__(35);
+  XMLWriterBase = __webpack_require__(37);
 
   module.exports = XMLStringWriter = (function(superClass) {
     extend(XMLStringWriter, superClass);
@@ -3584,7 +3646,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 35 */
+/* 37 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3592,37 +3654,37 @@ exports.parseFile = parseFile;
   var NodeType, WriterState, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLProcessingInstruction, XMLRaw, XMLText, XMLWriterBase, assign,
     hasProp = {}.hasOwnProperty;
 
-  assign = (__webpack_require__(7).assign);
+  assign = (__webpack_require__(9).assign);
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLDeclaration = __webpack_require__(21);
+  XMLDeclaration = __webpack_require__(23);
 
-  XMLDocType = __webpack_require__(22);
+  XMLDocType = __webpack_require__(24);
 
-  XMLCData = __webpack_require__(18);
+  XMLCData = __webpack_require__(20);
 
-  XMLComment = __webpack_require__(20);
+  XMLComment = __webpack_require__(22);
 
-  XMLElement = __webpack_require__(14);
+  XMLElement = __webpack_require__(16);
 
-  XMLRaw = __webpack_require__(27);
+  XMLRaw = __webpack_require__(29);
 
-  XMLText = __webpack_require__(28);
+  XMLText = __webpack_require__(30);
 
-  XMLProcessingInstruction = __webpack_require__(29);
+  XMLProcessingInstruction = __webpack_require__(31);
 
-  XMLDummy = __webpack_require__(30);
+  XMLDummy = __webpack_require__(32);
 
-  XMLDTDAttList = __webpack_require__(23);
+  XMLDTDAttList = __webpack_require__(25);
 
-  XMLDTDElement = __webpack_require__(25);
+  XMLDTDElement = __webpack_require__(27);
 
-  XMLDTDEntity = __webpack_require__(24);
+  XMLDTDEntity = __webpack_require__(26);
 
-  XMLDTDNotation = __webpack_require__(26);
+  XMLDTDNotation = __webpack_require__(28);
 
-  WriterState = __webpack_require__(36);
+  WriterState = __webpack_require__(38);
 
   module.exports = XMLWriterBase = (function() {
     function XMLWriterBase(options) {
@@ -4018,7 +4080,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 36 */
+/* 38 */
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -4034,7 +4096,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 37 */
+/* 39 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -4042,43 +4104,43 @@ exports.parseFile = parseFile;
   var NodeType, WriterState, XMLAttribute, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDocument, XMLDocumentCB, XMLElement, XMLProcessingInstruction, XMLRaw, XMLStringWriter, XMLStringifier, XMLText, getValue, isFunction, isObject, isPlainObject, ref,
     hasProp = {}.hasOwnProperty;
 
-  ref = __webpack_require__(7), isObject = ref.isObject, isFunction = ref.isFunction, isPlainObject = ref.isPlainObject, getValue = ref.getValue;
+  ref = __webpack_require__(9), isObject = ref.isObject, isFunction = ref.isFunction, isPlainObject = ref.isPlainObject, getValue = ref.getValue;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLDocument = __webpack_require__(9);
+  XMLDocument = __webpack_require__(11);
 
-  XMLElement = __webpack_require__(14);
+  XMLElement = __webpack_require__(16);
 
-  XMLCData = __webpack_require__(18);
+  XMLCData = __webpack_require__(20);
 
-  XMLComment = __webpack_require__(20);
+  XMLComment = __webpack_require__(22);
 
-  XMLRaw = __webpack_require__(27);
+  XMLRaw = __webpack_require__(29);
 
-  XMLText = __webpack_require__(28);
+  XMLText = __webpack_require__(30);
 
-  XMLProcessingInstruction = __webpack_require__(29);
+  XMLProcessingInstruction = __webpack_require__(31);
 
-  XMLDeclaration = __webpack_require__(21);
+  XMLDeclaration = __webpack_require__(23);
 
-  XMLDocType = __webpack_require__(22);
+  XMLDocType = __webpack_require__(24);
 
-  XMLDTDAttList = __webpack_require__(23);
+  XMLDTDAttList = __webpack_require__(25);
 
-  XMLDTDEntity = __webpack_require__(24);
+  XMLDTDEntity = __webpack_require__(26);
 
-  XMLDTDElement = __webpack_require__(25);
+  XMLDTDElement = __webpack_require__(27);
 
-  XMLDTDNotation = __webpack_require__(26);
+  XMLDTDNotation = __webpack_require__(28);
 
-  XMLAttribute = __webpack_require__(16);
+  XMLAttribute = __webpack_require__(18);
 
-  XMLStringifier = __webpack_require__(33);
+  XMLStringifier = __webpack_require__(35);
 
-  XMLStringWriter = __webpack_require__(34);
+  XMLStringWriter = __webpack_require__(36);
 
-  WriterState = __webpack_require__(36);
+  WriterState = __webpack_require__(38);
 
   module.exports = XMLDocumentCB = (function() {
     function XMLDocumentCB(options, onData, onEnd) {
@@ -4568,7 +4630,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 38 */
+/* 40 */
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -4577,11 +4639,11 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(15);
+  NodeType = __webpack_require__(17);
 
-  XMLWriterBase = __webpack_require__(35);
+  XMLWriterBase = __webpack_require__(37);
 
-  WriterState = __webpack_require__(36);
+  WriterState = __webpack_require__(38);
 
   module.exports = XMLStreamWriter = (function(superClass) {
     extend(XMLStreamWriter, superClass);
@@ -4750,7 +4812,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 39 */
+/* 41 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -4761,17 +4823,17 @@ exports.parseFile = parseFile;
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  sax = __webpack_require__(40);
+  sax = __webpack_require__(42);
 
-  events = __webpack_require__(43);
+  events = __webpack_require__(45);
 
-  bom = __webpack_require__(44);
+  bom = __webpack_require__(46);
 
-  processors = __webpack_require__(45);
+  processors = __webpack_require__(47);
 
-  setImmediate = (__webpack_require__(46).setImmediate);
+  setImmediate = (__webpack_require__(48).setImmediate);
 
-  defaults = (__webpack_require__(4).defaults);
+  defaults = (__webpack_require__(6).defaults);
 
   isEmpty = function(thing) {
     return typeof thing === "object" && (thing != null) && Object.keys(thing).length === 0;
@@ -5151,7 +5213,7 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 40 */
+/* 42 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 ;(function (sax) { // wrapper for non-node envs
@@ -5316,7 +5378,7 @@ exports.parseFile = parseFile;
 
   var Stream
   try {
-    Stream = (__webpack_require__(41).Stream)
+    Stream = (__webpack_require__(43).Stream)
   } catch (ex) {
     Stream = function () {}
   }
@@ -5387,7 +5449,7 @@ exports.parseFile = parseFile;
       typeof Buffer.isBuffer === 'function' &&
       Buffer.isBuffer(data)) {
       if (!this._decoder) {
-        var SD = (__webpack_require__(42).StringDecoder)
+        var SD = (__webpack_require__(44).StringDecoder)
         this._decoder = new SD('utf8')
       }
       data = this._decoder.write(data)
@@ -6731,28 +6793,28 @@ exports.parseFile = parseFile;
 
 
 /***/ }),
-/* 41 */
+/* 43 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("stream");
 
 /***/ }),
-/* 42 */
+/* 44 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("string_decoder");
 
 /***/ }),
-/* 43 */
+/* 45 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("events");
 
 /***/ }),
-/* 44 */
+/* 46 */
 /***/ (function(__unused_webpack_module, exports) {
 
 // Generated by CoffeeScript 1.12.7
@@ -6770,7 +6832,7 @@ module.exports = require("events");
 
 
 /***/ }),
-/* 45 */
+/* 47 */
 /***/ (function(__unused_webpack_module, exports) {
 
 // Generated by CoffeeScript 1.12.7
@@ -6810,18 +6872,11 @@ module.exports = require("events");
 
 
 /***/ }),
-/* 46 */
+/* 48 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("timers");
-
-/***/ }),
-/* 47 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("fs");
 
 /***/ })
 /******/ 	]);

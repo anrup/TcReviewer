@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+
 import * as parsing from './parsing';
+import { arrayBuffer } from 'stream/consumers';
 
 // Parent file of twincat-reviewr treeview
 class MainFileItem extends vscode.TreeItem {
@@ -65,15 +69,80 @@ class ReviewerTreeviewDataProvider implements vscode.TreeDataProvider<vscode.Tre
 }
 
 // Event handler for item selection in the twincat-reviewer tree view
-function handleTreeViewItemSelected(selectedItem: any) {
-    // Retrieve the file path or identifier associated with the selected subfile
-    const filePath = selectedItem.filePath; // Assuming `filePath` is the property containing the file path
-
+function handleTreeViewItemSelected(context: vscode.ExtensionContext, selectedItem: any) {
     // Parse the file to extract the relevant content
-    console.log(selectedItem.declaration);
-    console.log(selectedItem.implementation);
-    // Create or show the custom readonly editor
-    // showCustomReadonlyEditor(parsedContent);
+    const declLines = selectedItem.declaration.split(/\r?\n/);
+    const implLines = selectedItem.implementation.split(/\r?\n/);
+    createTcView(context, selectedItem.label, declLines, implLines);
+}
+
+function createTcView(context: vscode.ExtensionContext, label: string, declaration: any, implementation: any) {
+    // Read the HTML file
+    const htmlPath = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.html'));
+    let htmlContent = fs.readFileSync(htmlPath.fsPath, 'utf-8');
+
+    // Read the CSS file
+    const cssPath = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.css'));
+    const cssContent = fs.readFileSync(cssPath.fsPath, 'utf-8');
+
+    // Create a webview panel for the custom editor
+    const panel = vscode.window.createWebviewPanel(
+        'customEditor',
+        label,
+        vscode.ViewColumn.One,
+        {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'views'))]
+        }
+    );
+
+    // Read the script file
+    const scriptPathOnDisk = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.js'));
+    const scriptUri = panel.webview.asWebviewUri(scriptPathOnDisk);
+
+    // Set the HTML content for the webview
+    const replacedHtmlContent = htmlContent
+        .replace('<link rel="stylesheet" href="styles.css">', `<style>${cssContent}</style>`)
+        .replace('<!-- declaration -->', declaration.map((line : string, index : number) => `<div class="line" data-line-number="${index}"><pre>${line}</pre></div>`).join(''))
+        .replace('<!-- implementation -->', implementation.map((line : string, index : number) => `<div class="line" data-line-number="${index}"><pre>${line}</pre></div>`).join(''))
+        .replace('<script src="script.js"></script>', `<script src="${scriptUri}"></script>`);
+
+    panel.webview.html = replacedHtmlContent;
+
+
+    panel.webview.onDidReceiveMessage(
+        message => {
+            switch (message.command) {
+                case 'logLineNumber':
+                    console.log(`Line clicked in ${message.section}:`, message.lineNumber);
+                    // Send a highlight command back to the webview
+                    let highlightedLines = context.workspaceState.get(`${label}highlightedLines${message.section}`, [] as number[]);
+                    
+                    const index = highlightedLines.indexOf(parseInt(message.lineNumber));
+                    console.log(`index`, index, 'of', parseInt(message.lineNumber));
+                    if (index !== -1) {
+                        // Value exists, remove it
+                        highlightedLines.splice(index, 1);
+                    } else {
+                        // Value doesn't exist, add it
+                        highlightedLines.push(parseInt(message.lineNumber));
+                    }
+                    context.workspaceState.update(`${label}highlightedLines${message.section}`, highlightedLines);
+
+                    console.log(`highlighted lines:`, highlightedLines);
+                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: highlightedLines, section: message.section });
+
+                    return;
+                // TODO: remove when not needed
+                case 'logFromScript':
+                    console.log('Message from script.js:', message.message);
+                    // You can perform other actions here based on the message
+                    return;
+            }
+        },
+        undefined,
+        context.subscriptions
+    );
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -97,7 +166,6 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(`File contains methods ${methods}`);
                     vscode.window.showInformationMessage(`File contains methods ${properties}`);
 
-                    console.log(data.Implementation);
                     const treeViewProvider = new ReviewerTreeviewDataProvider(data.$.Name, filename, data.Declaration[0], data.Implementation[0].ST[0]);
                     data.Method.forEach((method : any) => {
                         treeViewProvider.addMethod(method.$.Name, method.Declaration[0], method.Implementation[0].ST[0], vscode.ThemeIcon.File);
@@ -111,7 +179,7 @@ export function activate(context: vscode.ExtensionContext) {
                     treeView.onDidChangeSelection((event) => {
                         const selectedItem = event.selection[0];
                         if (selectedItem) {
-                            handleTreeViewItemSelected(selectedItem);
+                            handleTreeViewItemSelected(context, selectedItem);
                         }
                     });
 
