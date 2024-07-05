@@ -68,5 +68,63 @@
             }
         });
     }
+
+    // handle modal dynamic content
+
+    function dragElement(elm) {
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        elm.onmousedown = dragMouseDown;
+
+        function dragMouseDown(e) {
+            e = e || window.event;
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e = e || window.event;
+            e.preventDefault();
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            elm.style.top = (elm.offsetTop - pos2) + "px";
+            elm.style.left = (elm.offsetLeft - pos1) + "px";
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        dragElement(document.getElementById('modal'));
+
+        document.getElementById('open-comment-editor').addEventListener('click', function(e) {
+            e.preventDefault();
+            document.getElementById('modal').style.display = 'block';
+            document.getElementById('comment-textarea').value = ''; // Set initial textarea value
+        });
+
+        document.getElementById('save-comment').addEventListener('click', function() {
+            let comment = document.getElementById('comment-textarea').value;
+            let truncatedComment = comment.split(' ').slice(0, 120).join(' ');
+            document.getElementById('comment-summary').textContent = truncatedComment + (comment.length > truncatedComment.length ? '...' : '');
+            document.getElementById('modal').style.display = 'none';
+        });
+
+        document.getElementById('cancel-comment').addEventListener('click', function() {
+            document.getElementById('modal').style.display = 'none';
+        });
+
+        // Initial update of comment summary
+        let initialComment = ''; // Replace with initial comment value if needed
+        let initialTruncatedComment = initialComment.split(' ').slice(0, 120).join(' ');
+        document.getElementById('comment-summary').textContent = initialTruncatedComment + (initialComment.length > initialTruncatedComment.length ? '...' : '');
+    });
 }
 )();

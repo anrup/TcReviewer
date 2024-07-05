@@ -10,6 +10,7 @@ body {
     display: flex;
     width: 100%;
     height: 100%;
+    flex-direction: row;
 }
 
 .sidebar {
@@ -36,6 +37,41 @@ body {
 
 .section:last-child {
     border-bottom: none;
+}
+
+/* Comment editor as a floating window */
+.modal {
+    display: block;
+    position: absolute;
+    z-index: 1;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-width: 500px;
+    padding: 20px;
+    border: 1px solid #888;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    cursor: move;
+}
+
+.modal-content {
+    margin: 0;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+#comment-textarea {
+    width: 100%;
+    height: 100px;
+    margin-bottom: 10px;
+}
+
+#save-comment, #cancel-comment {
+    margin: 5px;
 }
 
 /* Define styles for the 'highlight' class */
