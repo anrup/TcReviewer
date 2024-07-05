@@ -15,8 +15,8 @@ body {
 .sidebar {
     width: 200px;
     padding: 10px;
-    background-color: #f4f4f4;
-    border-right: 1px solid #ccc;
+    /*background-color: #f4f4f4; */
+    border-left: 1px solid #ccc;
     overflow-y: auto;
 }
 
