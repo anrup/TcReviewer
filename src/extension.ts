@@ -116,21 +116,29 @@ function createTcView(context: vscode.ExtensionContext, label: string, declarati
                 case 'logLineNumber':
                     console.log(`Line clicked in ${message.section}:`, message.lineNumber);
                     // Send a highlight command back to the webview
-                    let highlightedLines = context.workspaceState.get(`${label}highlightedLines${message.section}`, [] as number[]);
                     
-                    const index = highlightedLines.indexOf(parseInt(message.lineNumber));
+                    let highlightedLines = context.workspaceState.get(`highlightedLines`, new Map<string, Map<string, number[]>>());
+                    let labelLines = highlightedLines.get(`${label}`) ?? new Map<string, number[]>();
+                    let sectionLines = labelLines.get(`${message.section}`) ?? [] as number[];
+                    
+                    const index = sectionLines.indexOf(parseInt(message.lineNumber));
                     console.log(`index`, index, 'of', parseInt(message.lineNumber));
                     if (index !== -1) {
                         // Value exists, remove it
-                        highlightedLines.splice(index, 1);
+                        sectionLines.splice(index, 1);
                     } else {
                         // Value doesn't exist, add it
-                        highlightedLines.push(parseInt(message.lineNumber));
+                        sectionLines.push(parseInt(message.lineNumber));
                     }
-                    context.workspaceState.update(`${label}highlightedLines${message.section}`, highlightedLines);
+
+                    console.log('sectionLines update', sectionLines);
+
+                    labelLines.set(`${message.section}`, sectionLines);
+                    highlightedLines.set(`${label}`, labelLines);
+                    context.workspaceState.update(`highlightedLines`, highlightedLines);
 
                     console.log(`highlighted lines:`, highlightedLines);
-                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: highlightedLines, section: message.section });
+                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: sectionLines, section: message.section });
 
                     return;
                 // TODO: remove when not needed
