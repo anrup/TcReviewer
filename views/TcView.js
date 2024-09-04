@@ -14,9 +14,17 @@
 
         // Post a message to the VS Code extension with the line number and the section ID
         vscode.postMessage({
-            command: 'logLineNumber',
+            command: 'LogLineNumber',
             lineNumber: lineNumber,
             section: event.currentTarget.parentElement.id
+        });
+    }
+
+    function handleLoadComment(event) {
+        logToExtension(Number(event.currentTarget.getAttribute('id').split('-')[1]));
+        vscode.postMessage({
+            command: 'OpenComment',
+            commentId: Number(event.currentTarget.getAttribute('id').split('-')[1])
         });
     }
 
@@ -41,8 +49,34 @@
             const message = event.data;
 
             switch (message.command) {
-                case 'highlightLine':
+                case 'HighlightLine':
                     setHighlights(message.section, message.lineNumbers);
+                    break;
+
+                case 'AddComment':
+                    let listItem = document.createElement('li');
+                    let commentElement = document.createElement('a');
+                    commentElement.innerHTML = message.commentDescription;
+                    commentElement.setAttribute('href', '#');
+                    commentElement.setAttribute('id', `comment-${message.commentId}`);
+                    commentElement.addEventListener('click', handleLoadComment);
+                    listItem.append(commentElement);
+                    document.getElementById('comment-list').append(listItem);
+                    break;
+
+                case 'DeleteComment':
+                    let commentList = document.getElementById('comment-list');
+                    let deleteCommentNode = commentList.querySelector(`#comment-${message.commentId}`);
+                    logToExtension(deleteCommentNode.outerHTML);
+                    let commentListItem = deleteCommentNode.closest('li');
+                    logToExtension(commentListItem.outerHTML);
+                    deleteCommentNode.remove();
+                    commentListItem.remove();
+                    break;
+
+                case 'OpenCommentWindow':
+                    document.getElementById('modal').style.display = 'block';
+                    document.getElementById('comment-textarea').value = message.description;
                     break;
             }
         });
@@ -50,7 +84,7 @@
 
     function logToExtension(message) {
         vscode.postMessage({
-            command: 'logFromScript',
+            command: 'LogFromScript',
             message: message
         });
     }
@@ -58,10 +92,9 @@
     function setHighlights(sectionId, elements) {
         const allLines = document.querySelectorAll(`#${sectionId} > .line`);
         
-        logToExtension(elements);
         allLines.forEach(line => {
-            const lineNumber = parseInt(line.dataset.lineNumber);
-            if (elements.includes(lineNumber)) {
+            const lineNumber = line.dataset.lineNumber;
+            if (elements.includes(Number(lineNumber))) {
                 line.classList.add('highlight');
             } else {
                 line.classList.remove('highlight');
@@ -77,7 +110,8 @@
 
         function dragMouseDown(e) {
             e = e || window.event;
-            e.preventDefault();
+            // TODO: replace depricated event and figure out how to disable forwarding of movement commands to child elements.
+            //e.preventDefault();
             pos3 = e.clientX;
             pos4 = e.clientY;
             document.onmouseup = closeDragElement;
@@ -86,7 +120,7 @@
 
         function elementDrag(e) {
             e = e || window.event;
-            e.preventDefault();
+            //e.preventDefault();
             pos1 = pos3 - e.clientX;
             pos2 = pos4 - e.clientY;
             pos3 = e.clientX;
@@ -104,7 +138,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         dragElement(document.getElementById('modal'));
 
-        document.getElementById('open-comment-editor').addEventListener('click', function(e) {
+        document.getElementById('add-comment-button').addEventListener('click', function(e) {
             e.preventDefault();
             document.getElementById('modal').style.display = 'block';
             document.getElementById('comment-textarea').value = ''; // Set initial textarea value
@@ -112,19 +146,20 @@
 
         document.getElementById('save-comment').addEventListener('click', function() {
             let comment = document.getElementById('comment-textarea').value;
-            let truncatedComment = comment.split(' ').slice(0, 120).join(' ');
-            document.getElementById('comment-summary').textContent = truncatedComment + (comment.length > truncatedComment.length ? '...' : '');
+            vscode.postMessage({
+                command: 'SaveComment',
+                message: comment
+            });
             document.getElementById('modal').style.display = 'none';
         });
 
-        document.getElementById('cancel-comment').addEventListener('click', function() {
+        document.getElementById('delete-comment').addEventListener('click', function() {
             document.getElementById('modal').style.display = 'none';
+            vscode.postMessage({
+                command: 'DeleteComment',
+                message: ''
+            });
         });
-
-        // Initial update of comment summary
-        let initialComment = ''; // Replace with initial comment value if needed
-        let initialTruncatedComment = initialComment.split(' ').slice(0, 120).join(' ');
-        document.getElementById('comment-summary').textContent = initialTruncatedComment + (initialComment.length > initialTruncatedComment.length ? '...' : '');
     });
 }
 )();

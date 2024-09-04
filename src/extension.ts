@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import * as parsing from './parsing';
-import { arrayBuffer } from 'stream/consumers';
 
 // Parent file of twincat-reviewr treeview
 class MainFileItem extends vscode.TreeItem {
@@ -68,15 +67,115 @@ class ReviewerTreeviewDataProvider implements vscode.TreeDataProvider<vscode.Tre
     }
 }
 
+class CommentData {
+    comment : string = '';
+    lines : Map<string, Array<number>> = new Map();
+
+    // Metadata
+    readonly commentId : number;
+    readonly object : string;
+    constructor (commentId: number, object : string) {
+        this.commentId = commentId;
+        this.object = object;
+    }
+
+    IsCommentWithId(args: {commentId: number}) : boolean {
+        return this.commentId === args.commentId;
+    }
+    UpdateSelectedLines(args: {section: string, lineId : number}) {
+        if (!this.lines.has(args.section)) {
+            this.lines.set(args.section, []);
+        }
+
+        let idx = this.lines.get(args.section)!.indexOf(args.lineId);       
+        if (idx === -1) {
+            this.lines.get(args.section)!.push(args.lineId);
+        }
+        else {
+            this.lines.get(args.section)!.splice(idx, 1);
+        }
+
+    }
+}
+
+class CommentController {
+    comments : Array<CommentData> = [];
+    currentCommentData : (CommentData | null) = null;
+    currentCommentId : number = 0;
+
+    OnNewLineSelected(args: {object: string, section: string, lineId: number}): CommentData {
+        if (this.currentCommentData === null) {
+            this.currentCommentId++;
+            this.currentCommentData = new CommentData(this.currentCommentId, args.object);
+        }
+
+        this.currentCommentData.UpdateSelectedLines({section: args.section, lineId: args.lineId});
+        return this.currentCommentData;
+    }
+
+    SaveCommentData(args: {message: string}) {
+        if (this.currentCommentData === null) {
+            return;
+        }
+
+        this.currentCommentData.comment = args.message;
+        this.comments.push(this.currentCommentData);
+        this.ResetCommentData();
+
+        console.log([...this.comments.values()]);
+    }
+
+    DeleteCommentData() {
+        // Check if currentCommentData exists in comments array, then remove it
+        if (this.currentCommentData !== null) {
+            if (this.comments.includes(this.currentCommentData)){
+                let rmIdx = this.comments.indexOf(this.currentCommentData);
+                this.comments.splice(rmIdx, 1);
+            }
+        }
+        this.ResetCommentData();
+    }
+
+    GenerateCurrentCommentDescription() : string {
+        return 'placeholder';
+    }
+
+    LoadComment(args: {commentId : number}) {
+        console.log('open comment with ID', args.commentId);
+        let commentData = this.comments.find((comment : CommentData) => comment.commentId === args.commentId);
+
+        console.log('found comment', commentData);
+        if (commentData !== undefined) {
+            this.currentCommentData = commentData;
+        }
+        else {
+            console.error(`Could not find comment with comment ID ${args.commentId}`);
+        }
+    }
+
+    CommentExists(commentId : number) : boolean {
+        let commentData = this.comments.find((comment : CommentData) => comment.commentId === commentId);
+        return commentData !== undefined;
+    }
+
+    ReadFromFile() {/*TODO*/}
+    WriteToFile() {/*TODO*/}
+
+    ResetCommentData() {
+        this.currentCommentData = null;
+    }
+
+}
+
 // Event handler for item selection in the twincat-reviewer tree view
-function handleTreeViewItemSelected(context: vscode.ExtensionContext, selectedItem: any) {
+function handleTreeViewItemSelected(context: vscode.ExtensionContext, commentController: CommentController, selectedItem: any) {
     // Parse the file to extract the relevant content
     const declLines = selectedItem.declaration.split(/\r?\n/);
     const implLines = selectedItem.implementation.split(/\r?\n/);
-    createTcView(context, selectedItem.label, declLines, implLines);
+    createTcView(context, commentController, selectedItem.label, declLines, implLines);
 }
 
-function createTcView(context: vscode.ExtensionContext, label: string, declaration: any, implementation: any) {
+function createTcView(context: vscode.ExtensionContext, commentController: CommentController, label: string, declaration: any, implementation: any) {
     // Read the HTML file
     const htmlPath = vscode.Uri.file(path.join(context.extensionPath, 'views', 'TcView.html'));
     let htmlContent = fs.readFileSync(htmlPath.fsPath, 'utf-8');
@@ -109,43 +208,54 @@ function createTcView(context: vscode.ExtensionContext, label: string, declarati
 
     panel.webview.html = replacedHtmlContent;
 
-
     panel.webview.onDidReceiveMessage(
         message => {
             switch (message.command) {
-                case 'logLineNumber':
-                    console.log(`Line clicked in ${message.section}:`, message.lineNumber);
+                case 'LogLineNumber':
                     // Send a highlight command back to the webview
                     
-                    let highlightedLines = context.workspaceState.get(`highlightedLines`, new Map<string, Map<string, number[]>>());
-                    let labelLines = highlightedLines.get(`${label}`) ?? new Map<string, number[]>();
-                    let sectionLines = labelLines.get(`${message.section}`) ?? [] as number[];
+                    let commentData = commentController.OnNewLineSelected({object: label, section: message.section, lineId: parseInt(message.lineNumber)});
                     
-                    const index = sectionLines.indexOf(parseInt(message.lineNumber));
-                    console.log(`index`, index, 'of', parseInt(message.lineNumber));
-                    if (index !== -1) {
-                        // Value exists, remove it
-                        sectionLines.splice(index, 1);
-                    } else {
-                        // Value doesn't exist, add it
-                        sectionLines.push(parseInt(message.lineNumber));
-                    }
-
-                    console.log('sectionLines update', sectionLines);
-
-                    labelLines.set(`${message.section}`, sectionLines);
-                    highlightedLines.set(`${label}`, labelLines);
-                    context.workspaceState.update(`highlightedLines`, highlightedLines);
-
-                    console.log(`highlighted lines:`, highlightedLines);
-                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: sectionLines, section: message.section });
+                    panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: commentData.lines.get(message.section), section: message.section });
 
                     return;
                 // TODO: remove when not needed
-                case 'logFromScript':
+                case 'LogFromScript':
                     console.log('Message from script.js:', message.message);
                     // You can perform other actions here based on the message
                     return;
+
+                case 'SaveComment' :
+                    if (commentController.currentCommentData !== null) {
+                        if (!commentController.CommentExists(commentController.currentCommentData.commentId)) {
+                            // Update comment sidebar
+                            panel.webview.postMessage({ 
+                                command: 'AddComment', 
+                                commentDescription: commentController.GenerateCurrentCommentDescription(), 
+                                commentId: String(commentController.currentCommentData.commentId) });
+                            commentController.SaveCommentData({message: message.message});
+                        }
+                    }
+
+                    // Clear the view
+                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: [], section: 'declaration' });
+                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: [], section: 'implementation' });
+                    return;
+
+                case 'DeleteComment' :
+                    console.log(commentController.currentCommentData);
+                    panel.webview.postMessage({ 
+                        command: 'DeleteComment', 
+                        commentId: String(commentController.currentCommentData?.commentId) });
+                    commentController.DeleteCommentData();
+                    return;
+
+                case 'OpenComment' :
+                    commentController.LoadComment({commentId: Number(message.commentId)});
+                    console.log(commentController.currentCommentData);
+                    panel.webview.postMessage({command: 'OpenCommentWindow',
+                        description: commentController.currentCommentData?.comment
+                    });
             }
         },
         undefined,
@@ -154,6 +264,8 @@ function createTcView(context: vscode.ExtensionContext, label: string, declarati
 }
 
 export function activate(context: vscode.ExtensionContext) {
+
+    let commentController = new CommentController;
 
     let disposable = vscode.commands.registerCommand('twincat-reviewer.startReview', (resource: vscode.Uri) => {
         if (resource) {
@@ -165,8 +277,6 @@ export function activate(context: vscode.ExtensionContext) {
             
             pouData
                 .then((data) => {
-                    // const pouDeclarations = data.$.Declaration;
-                    // const pouImplmenetation = data.$.Implementation;
 
                     const methods = data.Method.map((obj : any) => obj.$.Name);
                     const properties = data.Property.map((obj : any) => obj.$.Name);
@@ -178,16 +288,14 @@ export function activate(context: vscode.ExtensionContext) {
                     data.Method.forEach((method : any) => {
                         treeViewProvider.addMethod(method.$.Name, method.Declaration[0], method.Implementation[0].ST[0], vscode.ThemeIcon.File);
                     });
-                    // data.Property.forEach(property: any => {
-                    //     treeViewProvider.addMethod(property.$.Name, property.Declaration, property.Implementation, vscode.ThemeIcon.File);
-                    // });
+
                     const treeView = vscode.window.createTreeView('twincat-reviewer.customTreeView', { treeDataProvider: treeViewProvider });
 
                     // Register event handler for item selection in the custom tree view
                     treeView.onDidChangeSelection((event) => {
                         const selectedItem = event.selection[0];
                         if (selectedItem) {
-                            handleTreeViewItemSelected(context, selectedItem);
+                            handleTreeViewItemSelected(context, commentController, selectedItem);
                         }
                     });
 

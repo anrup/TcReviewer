@@ -39,9 +39,15 @@ body {
     border-bottom: none;
 }
 
+#comment-list {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+
 /* Comment editor as a floating window */
 .modal {
-    display: block;
+    display: none;
     position: absolute;
     z-index: 1;
     left: 50%;
@@ -70,7 +76,7 @@ body {
     margin-bottom: 10px;
 }
 
-#save-comment, #cancel-comment {
+#save-comment, #delete-comment {
     margin: 5px;
 }
 
