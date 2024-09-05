@@ -136,8 +136,16 @@ class CommentController {
         this.ResetCommentData();
     }
 
-    GenerateCurrentCommentDescription() : string {
-        return 'placeholder';
+    GenerateCurrentCommentDescription(description : string) : string {
+        const maxLength = 80;
+
+        // Check if the string length is less than or equal to 80
+        if (description.length <= maxLength) {
+            return description;
+        }
+
+        // If it's larger than 80 characters, truncate and add '...'
+        return description.slice(0, maxLength) + '...';
     }
 
     LoadComment(args: {commentId : number}) {
@@ -231,7 +239,7 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
                             // Update comment sidebar
                             panel.webview.postMessage({ 
                                 command: 'AddComment', 
-                                commentDescription: commentController.GenerateCurrentCommentDescription(), 
+                                commentDescription: commentController.GenerateCurrentCommentDescription(message.message), 
                                 commentId: String(commentController.currentCommentData.commentId) });
                             commentController.SaveCommentData({message: message.message});
                         }
@@ -243,7 +251,6 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
                     return;
 
                 case 'DeleteComment' :
-                    console.log(commentController.currentCommentData);
                     panel.webview.postMessage({ 
                         command: 'DeleteComment', 
                         commentId: String(commentController.currentCommentData?.commentId) });
@@ -252,7 +259,6 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
 
                 case 'OpenComment' :
                     commentController.LoadComment({commentId: Number(message.commentId)});
-                    console.log(commentController.currentCommentData);
                     panel.webview.postMessage({command: 'OpenCommentWindow',
                         description: commentController.currentCommentData?.comment
                     });
