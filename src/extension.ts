@@ -139,6 +139,11 @@ class CommentController {
     GenerateCurrentCommentDescription(description : string) : string {
         const maxLength = 80;
 
+        // Check if description is ''
+        if (description.length === 0) {
+            return String(this.currentCommentData?.commentId);
+        }
+        
         // Check if the string length is less than or equal to 80
         if (description.length <= maxLength) {
             return description;
@@ -237,6 +242,7 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
                     if (commentController.currentCommentData !== null) {
                         if (!commentController.CommentExists(commentController.currentCommentData.commentId)) {
                             // Update comment sidebar
+
                             panel.webview.postMessage({ 
                                 command: 'AddComment', 
                                 commentDescription: commentController.GenerateCurrentCommentDescription(message.message), 
@@ -246,14 +252,18 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
                     }
 
                     // Clear the view
-                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: [], section: 'declaration' });
-                    panel.webview.postMessage({ command: 'highlightLine', lineNumbers: [], section: 'implementation' });
+                    panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: [], section: 'declaration' });
+                    panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: [], section: 'implementation' });
                     return;
 
                 case 'DeleteComment' :
                     panel.webview.postMessage({ 
                         command: 'DeleteComment', 
                         commentId: String(commentController.currentCommentData?.commentId) });
+
+                    // Clear the view
+                    panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: [], section: 'declaration' });
+                    panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: [], section: 'implementation' });
                     commentController.DeleteCommentData();
                     return;
 
@@ -262,6 +272,16 @@ function createTcView(context: vscode.ExtensionContext, commentController: Comme
                     panel.webview.postMessage({command: 'OpenCommentWindow',
                         description: commentController.currentCommentData?.comment
                     });
+
+                    // Update the view
+                    let declLineNumbers = commentController.currentCommentData?.lines.get('declaration');
+                    let implNumbers = commentController.currentCommentData?.lines.get('implementation');
+                    if (declLineNumbers !== undefined) {
+                        panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: declLineNumbers, section: 'declaration' });
+                    }
+                    if (implNumbers !== undefined) {
+                        panel.webview.postMessage({ command: 'HighlightLine', lineNumbers: implNumbers, section: 'implementation' });
+                    }
             }
         },
         undefined,
